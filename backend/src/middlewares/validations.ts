@@ -35,9 +35,17 @@ export const validateOrderBody = celebrate({
         email: Joi.string().email().required().messages({
             'string.empty': 'Не указан email',
         }),
-        phone: Joi.string().required().pattern(phoneRegExp).messages({
-            'string.empty': 'Не указан телефон',
-        }),
+        phone: Joi.string()
+            .required()
+            .min(2)
+            .max(16)
+            .pattern(phoneRegExp)
+            .messages({
+                'string.empty': 'Не указан телефон',
+                'string.min': 'Слишком короткий номер',
+                'string.max': 'Слишком длинный номер',
+                'string.pattern.base': 'Невалидный формат телефона',
+            }),
         address: Joi.string().required().messages({
             'string.empty': 'Не указан адрес',
         }),
@@ -45,6 +53,21 @@ export const validateOrderBody = celebrate({
             'string.empty': 'Не указана сумма заказа',
         }),
         comment: Joi.string().optional().allow(''),
+    }),
+})
+
+export const validateOrdersRetrievingBody = celebrate({
+    query: Joi.object().keys({
+        page: Joi.number().positive().default(1),
+        limit: Joi.number().positive().default(10),
+        sortField: Joi.string().default('createdAt'),
+        sortOrder: Joi.string().default('desc'),
+        status: Joi.string(),
+        totalAmountFrom: Joi.number().positive().allow(0),
+        totalAmountTo: Joi.number().positive().allow(0),
+        orderDateFrom: Joi.date(),
+        orderDateTo: Joi.date(),
+        search: Joi.number().allow(''),
     }),
 })
 

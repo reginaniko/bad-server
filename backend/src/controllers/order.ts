@@ -1,11 +1,13 @@
 import { NextFunction, Request, Response } from 'express'
 import { FilterQuery, Error as MongooseError, Types } from 'mongoose'
-import xss from 'xss'
+import sanitizeHtml from 'sanitize-html'
+import validator from 'validator'
 import BadRequestError from '../errors/bad-request-error'
 import NotFoundError from '../errors/not-found-error'
 import Order, { IOrder } from '../models/order'
 import Product, { IProduct } from '../models/product'
 import User from '../models/user'
+import escapeRegExp from '../utils/escapeRegExp'
 
 // eslint-disable-next-line max-len
 // GET /orders?page=2&limit=5&sort=totalAmount&order=desc&orderDateFrom=2024-07-01&orderDateTo=2024-08-01&status=delivering&totalAmountFrom=100&totalAmountTo=1000&search=%2B1
@@ -91,7 +93,7 @@ export const getOrders = async (
         ]
 
         if (search) {
-            const searchRegex = new RegExp(search as string, 'i')
+            const searchRegex = new RegExp(escapeRegExp(search as string), 'i')
             const searchNumber = Number(search)
 
             const searchConditions: any[] = [{ 'products.title': searchRegex }]
@@ -117,8 +119,8 @@ export const getOrders = async (
 
         aggregatePipeline.push(
             { $sort: sort },
-            { $skip: (Number(page) - 1) * Number(limit) },
-            { $limit: Number(limit) },
+            { $skip: (Number(page) - 1) * Math.min(Number(limit), 5) },
+            { $limit: Math.min(Number(limit), 5) },
             {
                 $group: {
                     _id: '$_id',
@@ -142,7 +144,7 @@ export const getOrders = async (
                 totalOrders,
                 totalPages,
                 currentPage: Number(page),
-                pageSize: Number(limit),
+                pageSize: Math.min(Number(limit), 10),
             },
         })
     } catch (error) {
@@ -159,8 +161,8 @@ export const getOrdersCurrentUser = async (
         const userId = res.locals.user._id
         const { search, page = 1, limit = 5 } = req.query
         const options = {
-            skip: (Number(page) - 1) * Number(limit),
-            limit: Number(limit),
+            skip: (Number(page) - 1) * Math.min(Number(limit), 5),
+            limit: Math.min(Number(limit), 5),
         }
 
         const user = await User.findById(userId)
@@ -186,7 +188,7 @@ export const getOrdersCurrentUser = async (
 
         if (search) {
             // если не экранировать то получаем Invalid regular expression: /+1/i: Nothing to repeat
-            const searchRegex = new RegExp(search as string, 'i')
+            const searchRegex = new RegExp(escapeRegExp(search as string), 'i')
             const searchNumber = Number(search)
             const products = await Product.find({ title: searchRegex })
             const productIds = products.map((product) => product._id)
@@ -194,7 +196,7 @@ export const getOrdersCurrentUser = async (
             orders = orders.filter((order) => {
                 // eslint-disable-next-line max-len
                 const matchesProductTitle = order.products.some((product) =>
-                    productIds.some((id) => id.equals(product._id))
+                    productIds.some((id: any) => id.equals(product._id))
                 )
                 // eslint-disable-next-line max-len
                 const matchesOrderNumber =
@@ -206,7 +208,7 @@ export const getOrdersCurrentUser = async (
         }
 
         const totalOrders = orders.length
-        const totalPages = Math.ceil(totalOrders / Number(limit))
+        const totalPages = Math.ceil(totalOrders / Math.min(Number(limit), 5))
 
         orders = orders.slice(options.skip, options.skip + options.limit)
 
@@ -216,7 +218,7 @@ export const getOrdersCurrentUser = async (
                 totalOrders,
                 totalPages,
                 currentPage: Number(page),
-                pageSize: Number(limit),
+                pageSize: Math.min(Number(limit), 10),
             },
         })
     } catch (error) {
@@ -292,24 +294,17 @@ export const createOrder = async (
         const basket: IProduct[] = []
         const products = await Product.find<IProduct>({})
         const userId = res.locals.user._id
-        const {
-            address,
-            payment,
-            phone,
-            total,
-            email,
-            items,
-            comment,
-        } = req.body
-
-        const sanitizedAddress = xss(address)
-        const sanitizedPayment = xss(payment)
-        const sanitizedPhone = xss(phone)
-        const sanitizedEmail = xss(email)
-        const sanitizedComment = xss(comment)
+        const { address, payment, phone, total, email, items, comment } =
+            req.body
+        if (email && !validator.isEmail(email)) {
+            throw new BadRequestError('Ошибка в формате e-mail')
+        }
+        if (phone && !validator.isMobilePhone(phone)) {
+            throw new BadRequestError('Ошибка в формате телефонного номера')
+        }
 
         items.forEach((id: Types.ObjectId) => {
-            const product = products.find((p) => p._id.equals(id))
+            const product = products.find((p: any) => p._id.equals(id))
             if (!product) {
                 throw new BadRequestError(`Товар с id ${id} не найден`)
             }
@@ -318,23 +313,33 @@ export const createOrder = async (
             }
             return basket.push(product)
         })
-
         const totalBasket = basket.reduce((a, c) => a + c.price, 0)
         if (totalBasket !== total) {
             return next(new BadRequestError('Неверная сумма заказа'))
         }
+        const sanitizedPhone = sanitizeHtml(phone, {
+            allowedTags: [],
+            allowedAttributes: {},
+        })
+        const sanitizedEmail = sanitizeHtml(email, {
+            allowedTags: [],
+            allowedAttributes: {},
+        })
+        const sanitizedComment = sanitizeHtml(comment, {
+            allowedTags: [],
+            allowedAttributes: {},
+        })
 
         const newOrder = new Order({
             totalAmount: total,
             products: items,
-            payment: sanitizedPayment,
-            phone: sanitizedPhone,
-            email: sanitizedEmail,
-            comment: sanitizedComment,
+            payment,
+            sanitizedPhone,
+            sanitizedEmail,
+            sanitizedComment,
             customer: userId,
-            deliveryAddress: sanitizedAddress,
+            deliveryAddress: address,
         })
-
         const populateOrder = await newOrder.populate(['customer', 'products'])
         await populateOrder.save()
 
