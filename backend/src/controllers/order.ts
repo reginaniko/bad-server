@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
 import { FilterQuery, Error as MongooseError, Types } from 'mongoose'
+import xss from 'xss'
 import BadRequestError from '../errors/bad-request-error'
 import NotFoundError from '../errors/not-found-error'
 import Order, { IOrder } from '../models/order'
@@ -291,8 +292,21 @@ export const createOrder = async (
         const basket: IProduct[] = []
         const products = await Product.find<IProduct>({})
         const userId = res.locals.user._id
-        const { address, payment, phone, total, email, items, comment } =
-            req.body
+        const {
+            address,
+            payment,
+            phone,
+            total,
+            email,
+            items,
+            comment,
+        } = req.body
+
+        const sanitizedAddress = xss(address)
+        const sanitizedPayment = xss(payment)
+        const sanitizedPhone = xss(phone)
+        const sanitizedEmail = xss(email)
+        const sanitizedComment = xss(comment)
 
         items.forEach((id: Types.ObjectId) => {
             const product = products.find((p) => p._id.equals(id))
@@ -304,6 +318,7 @@ export const createOrder = async (
             }
             return basket.push(product)
         })
+
         const totalBasket = basket.reduce((a, c) => a + c.price, 0)
         if (totalBasket !== total) {
             return next(new BadRequestError('Неверная сумма заказа'))
@@ -312,13 +327,14 @@ export const createOrder = async (
         const newOrder = new Order({
             totalAmount: total,
             products: items,
-            payment,
-            phone,
-            email,
-            comment,
+            payment: sanitizedPayment,
+            phone: sanitizedPhone,
+            email: sanitizedEmail,
+            comment: sanitizedComment,
             customer: userId,
-            deliveryAddress: address,
+            deliveryAddress: sanitizedAddress,
         })
+
         const populateOrder = await newOrder.populate(['customer', 'products'])
         await populateOrder.save()
 

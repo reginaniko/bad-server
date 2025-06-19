@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express'
 import { constants } from 'http2'
 import { Error as MongooseError } from 'mongoose'
 import { join } from 'path'
+import xss from 'xss'
 import BadRequestError from '../errors/bad-request-error'
 import ConflictError from '../errors/conflict-error'
 import NotFoundError from '../errors/not-found-error'
@@ -40,7 +41,14 @@ const createProduct = async (
     next: NextFunction
 ) => {
     try {
-        const { description, category, price, title, image } = req.body
+        const description = xss(req.body.description)
+        const category = xss(req.body.category)
+        const price = req.body.price
+        const title = xss(req.body.title)
+        const image = req.body.image ? {
+            fileName: xss(req.body.image.fileName),
+            originalName: xss(req.body.image.originalName),
+        } : undefined
 
         // Переносим картинку из временной папки
         if (image) {
@@ -81,7 +89,16 @@ const updateProduct = async (
 ) => {
     try {
         const { productId } = req.params
-        const { image } = req.body
+
+        const image = req.body.image ? {
+            fileName: xss(req.body.image.fileName),
+            originalName: xss(req.body.image.originalName),
+        } : undefined
+
+        const title = req.body.title ? xss(req.body.title) : undefined
+        const description = req.body.description ? xss(req.body.description) : undefined
+        const category = req.body.category ? xss(req.body.category) : undefined
+        const price = req.body.price !== undefined ? req.body.price : null
 
         // Переносим картинку из временной папки
         if (image) {
@@ -96,9 +113,11 @@ const updateProduct = async (
             productId,
             {
                 $set: {
-                    ...req.body,
-                    price: req.body.price ? req.body.price : null,
-                    image: req.body.image ? req.body.image : undefined,
+                    ...(title && { title }),
+                    ...(description && { description }),
+                    ...(category && { category }),
+                    price,
+                    image,
                 },
             },
             { runValidators: true, new: true }
