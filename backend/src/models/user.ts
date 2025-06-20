@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import mongoose, { Document, HydratedDocument, Model, Types } from 'mongoose'
 import validator from 'validator'
-import bcrypt from 'bcryptjs'
+import md5 from 'md5'
 
 import { ACCESS_TOKEN, REFRESH_TOKEN } from '../config'
 import UnauthorizedError from '../errors/unauthorized-error'
@@ -14,6 +14,7 @@ export enum Role {
 }
 
 export interface IUser extends Document {
+    _id: Types.ObjectId
     name: string
     email: string
     password: string
@@ -80,12 +81,6 @@ const userSchema = new mongoose.Schema<IUser, IUserModel, IUserMethods>(
         },
         phone: {
             type: String,
-            minlength: [2, 'Минимальная длина поля "phone" - 2'],
-            maxlength: [16, 'Максимальная длина поля "phone" - 16'],
-            validate: {
-                validator: (v: string) => validator.isMobilePhone(v),
-                message: 'Поле "phone" должно быть валидным телефонным номером',
-            },
         },
         lastOrderDate: {
             type: Date,
@@ -126,10 +121,7 @@ const userSchema = new mongoose.Schema<IUser, IUserModel, IUserMethods>(
 userSchema.pre('save', async function hashingPassword(next) {
     try {
         if (this.isModified('password')) {
-            this.password = await bcrypt.hash(
-                this.password,
-                await bcrypt.genSalt(10)
-            )
+            this.password = md5(this.password)
         }
         next()
     } catch (error) {
@@ -140,7 +132,7 @@ userSchema.pre('save', async function hashingPassword(next) {
 // Можно лучше: централизованное создание accessToken и  refresh токена
 
 userSchema.methods.generateAccessToken = function generateAccessToken() {
-    const user: any = this
+    const user = this
     // Создание accessToken токена возможно в контроллере авторизации
     return jwt.sign(
         {
@@ -157,7 +149,7 @@ userSchema.methods.generateAccessToken = function generateAccessToken() {
 
 userSchema.methods.generateRefreshToken =
     async function generateRefreshToken() {
-        const user: any = this
+        const user = this
         // Создание refresh токена возможно в контроллере авторизации/регистрации
         const refreshToken = jwt.sign(
             {
@@ -190,7 +182,7 @@ userSchema.statics.findUserByCredentials = async function findByCredentials(
     const user = await this.findOne({ email })
         .select('+password')
         .orFail(() => new UnauthorizedError('Неправильные почта или пароль'))
-    const passwdMatch = await bcrypt.compare(password, user.password)
+    const passwdMatch = md5(password) === user.password
     if (!passwdMatch) {
         return Promise.reject(
             new UnauthorizedError('Неправильные почта или пароль')

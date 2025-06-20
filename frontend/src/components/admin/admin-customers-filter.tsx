@@ -18,22 +18,19 @@ export default function AdminFilterCustomers() {
     const filterCustomersOption = useSelector(
         customersSelector.selectFilterOption
     )
-     
 
-    const handleFilter = (filters: Record<string, unknown>) => {
+    const handleFilter = (filters: Record<string, any>) => {
         dispatch(updateFilter({ ...filters }))
         const queryParams: { [key: string]: string } = {}
         Object.entries(filters).forEach(([key, value]) => {
             if (value) {
                 queryParams[key] =
-                    typeof value === 'object' ? value.value : value.toString()
+                    typeof value === 'object' && 'value' in value ? value.value : value.toString()
             }
         })
         setSearchParams(queryParams)
         navigate(
-            `${AppRoute.AdminCustomers}?${new URLSearchParams(
-                queryParams
-            ).toString()}`
+            `${AppRoute.AdminCustomers}?${new URLSearchParams(queryParams).toString()}`
         )
     }
 

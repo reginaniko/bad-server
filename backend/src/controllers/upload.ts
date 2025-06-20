@@ -1,7 +1,8 @@
 import { NextFunction, Request, Response } from 'express'
 import { constants } from 'http2'
-import sharp from 'sharp'
+import { loadEsm } from 'load-esm'
 import BadRequestError from '../errors/bad-request-error'
+import { allowedTypes } from '../middlewares/file'
 
 export const uploadFile = async (
     req: Request,
@@ -11,17 +12,23 @@ export const uploadFile = async (
     if (!req.file) {
         return next(new BadRequestError('Файл не загружен'))
     }
+
+    const { fileTypeFromFile } =
+        await loadEsm<typeof import('file-type')>('file-type');
+
+    const fileType = await fileTypeFromFile(req.file.path);
+
+    if (!fileType || !fileType.mime || !allowedTypes.includes(fileType.mime)) {
+        return next(new BadRequestError('Unexpected file type'));
+    }
+
     try {
-        await sharp(req.file.path).metadata()
-        if (req.file?.size < 2000) {
-            return next(new BadRequestError('Слишком небольшой размер файла'))
-        }
         const fileName = process.env.UPLOAD_PATH
             ? `/${process.env.UPLOAD_PATH}/${req.file.filename}`
             : `/${req.file?.filename}`
         return res.status(constants.HTTP_STATUS_CREATED).send({
             fileName,
-            originalName: req.file.filename,
+            originalName: req.file?.originalname,
         })
     } catch (error) {
         return next(error)
